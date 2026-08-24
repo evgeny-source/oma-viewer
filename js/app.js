@@ -99,9 +99,7 @@ R=2753;2752;2751;2752;2753;2754;2755;2756;2757;2758
     'padThickness',
     'padGap',
     'padDrop',
-    'padReach',
     'padTilt',
-    'padStem',
   ];
 
   const els = {

@@ -12,15 +12,13 @@
     bridgeDepth: 4.0, // Z of bridge (often = rimDepth)
     bridgeDrop: 0, // vertical offset of bridge center (mm, + up)
     bridgeReach: 2.0, // how far bridge overlaps into each rim (mm)
-    // Nose pads (symmetric L/R)
-    padWidth: 7.0, // ellipse width (along face, mostly horizontal)
-    padHeight: 10.0, // ellipse height (vertical)
-    padThickness: 2.0, // pad body thickness
-    padGap: 16.0, // distance between pad centers
-    padDrop: -6.0, // vertical position of pad centers (mm, + up)
-    padReach: 8.0, // how far pads sit behind the rim toward the face
-    padTilt: 18.0, // inward face tilt (degrees)
-    padStem: 2.0, // stem cross-section size
+    // Molded plastic nose pads (fused to nasal rims, no stems)
+    padWidth: 6.0, // how far the pad juts from the inner rim toward the nose
+    padHeight: 12.0, // vertical length of the pad
+    padThickness: 4.0, // Z thickness (typically matches the rim)
+    padGap: 16.0, // distance between inner contact faces
+    padDrop: -8.0, // vertical position of pad centers (mm, + up)
+    padTilt: 16.0, // inward/back tilt of the contact face (degrees)
   };
 
   function cloneParams(p) {
@@ -67,14 +65,8 @@
     meshes.push(extrudeRing(worldL.outer, worldL.inner, params.rimDepth, 'rim-L'));
     if (bridge) meshes.push(extrudePolygon(bridge.outline, params.bridgeDepth, 'bridge'));
     if (pads) {
-      if (pads.R) {
-        meshes.push(pads.R.stem);
-        meshes.push(pads.R.pad);
-      }
-      if (pads.L) {
-        meshes.push(pads.L.stem);
-        meshes.push(pads.L.pad);
-      }
+      if (pads.R && pads.R.mesh) meshes.push(pads.R.mesh);
+      if (pads.L && pads.L.mesh) meshes.push(pads.L.mesh);
     }
 
     const combined = mergeMeshes(meshes);
@@ -201,223 +193,176 @@
   }
 
   /**
-   * Symmetric nose pads behind the rims, toward the face (−Z).
-   * Pads sit at ±padGap/2, padDrop on Y; stems connect from nasal rim.
+   * Molded acetate-style nose pads: solid flanges fused to the nasal inner
+   * rims. No stems — the pad is a continuation of the rim toward the nose.
    */
   function buildNosePads(rimR, rimL, params) {
     if (params.padWidth < 0.5 || params.padHeight < 0.5 || params.padThickness < 0.2) {
       return null;
     }
-
-    const halfGap = params.padGap / 2;
-    const y = params.padDrop;
-    const zBack = -params.rimDepth / 2;
-    // Pad centers: behind rim back face by padReach (toward wearer)
-    const zPad = zBack - params.padReach;
-    const tilt = (params.padTilt * Math.PI) / 180;
-
-    const padR = makePadAssembly({
-      side: 'R',
-      rim: rimR,
-      center: { x: -halfGap, y: y, z: zPad },
-      tilt: tilt,
-      params: params,
-    });
-    const padL = makePadAssembly({
-      side: 'L',
-      rim: rimL,
-      center: { x: halfGap, y: y, z: zPad },
-      tilt: tilt,
-      params: params,
-    });
-
-    return { R: padR, L: padL, y: y, gap: params.padGap };
+    const padR = buildPlasticPad(rimR, 'R', params);
+    const padL = buildPlasticPad(rimL, 'L', params);
+    return { R: padR, L: padL, y: params.padDrop, gap: params.padGap };
   }
 
-  function makePadAssembly(args) {
-    const side = args.side;
-    const rim = args.rim;
-    const center = args.center;
-    const tilt = args.tilt;
-    const params = args.params;
-    const towardCenter = side === 'R' ? 1 : -1;
-
-    // Contact normal: toward midline (+X for R) and toward face (−Z)
-    const ez = normalize3(
-      towardCenter * Math.sin(tilt),
-      0,
-      -Math.cos(tilt)
-    );
-    let ey = { x: 0, y: 1, z: 0 };
-    // Orthonormalize ey against ez
-    ey = normalize3(
-      ey.x - ez.x * dot3(ey, ez),
-      ey.y - ez.y * dot3(ey, ez),
-      ey.z - ez.z * dot3(ey, ez)
-    );
-    const ex = cross3(ey, ez);
-
-    const halfW = params.padWidth / 2;
+  function buildPlasticPad(rim, side, params) {
+    const towardNose = side === 'R' ? 1 : -1;
+    const yMid = params.padDrop;
     const halfH = params.padHeight / 2;
-    const halfT = params.padThickness / 2;
+    const y0 = yMid - halfH;
+    const y1 = yMid + halfH;
+    const n = 14;
 
-    const pad = extrudeEllipse(center, ex, ey, ez, halfW, halfH, halfT, 28, 'pad-' + side);
+    const rimArc = sampleNasalInnerArc(rim.inner, side, y0, y1, n);
+    if (!rimArc.length) return null;
 
-    // Attach stem from nasal rim (near pad Y) to pad mount (back of pad)
-    const attach = findNasalAttach(rim.outer, side, center.y);
-    const mount = {
-      x: center.x - ez.x * halfT,
-      y: center.y - ez.y * halfT,
-      z: center.z - ez.z * halfT,
-    };
-    // Prefer attach slightly behind rim mid-depth so stem meets solid rim
-    const attach3 = {
-      x: attach.x,
-      y: attach.y,
-      z: -params.rimDepth * 0.15,
-    };
-    const stem = extrudeStem(attach3, mount, params.padStem, 'pad-stem-' + side);
+    const attachX = averageX(rimArc);
+    // R lives at −X; inner contact faces sit at ±padGap/2
+    let contactX = -towardNose * (params.padGap / 2);
+    const minProtrude = 1.2;
+    if (side === 'R') {
+      contactX = Math.max(contactX, attachX + minProtrude);
+      contactX = Math.min(contactX, -0.6);
+    } else {
+      contactX = Math.min(contactX, attachX - minProtrude);
+      contactX = Math.max(contactX, 0.6);
+    }
 
-    // 2D outline (ellipse in XY for overlay) — approximate projected oval
-    const outline2d = [];
-    const segs = 24;
-    for (let i = 0; i < segs; i++) {
-      const a = (i / segs) * Math.PI * 2;
-      const lx = Math.cos(a) * halfW;
-      const ly = Math.sin(a) * halfH;
-      outline2d.push({
-        x: center.x + ex.x * lx + ey.x * ly,
-        y: center.y + ex.y * lx + ey.y * ly,
+    const overlap = Math.min(2.2, Math.max(1.0, params.rimWidth * 0.55));
+    const origin = rim.origin || { x: 0, y: 0 };
+    const root = rimArc.map(function (p) {
+      return offsetIntoRim(p, origin, overlap);
+    });
+
+    const edge = [];
+    const chord = Math.abs(contactX - attachX);
+    const round = Math.min(params.padWidth * 0.55, chord * 0.85);
+    for (let i = 0; i < n; i++) {
+      const t = n === 1 ? 0.5 : i / (n - 1);
+      const y = y0 + t * (y1 - y0);
+      const ny = (y - yMid) / (halfH || 1);
+      const bulge = Math.sqrt(Math.max(0, 1 - ny * ny));
+      // D-face: innermost at contactX, top/bottom pull back toward the rim
+      edge.push({
+        x: contactX - towardNose * round * (1 - bulge),
+        y: y,
       });
     }
 
+    const tilt = (params.padTilt * Math.PI) / 180;
+    const mesh = extrudePadStrip(root, edge, params.padThickness, tilt, towardNose, attachX, 'pad-' + side);
+
+    const outline2d = root.concat(edge.slice().reverse());
     return {
-      center: center,
-      attach: attach3,
-      mount: mount,
+      center: { x: contactX, y: yMid },
       outline2d: outline2d,
-      pad: pad,
-      stem: stem,
+      mesh: mesh,
     };
   }
 
-  function findNasalAttach(ring, side, targetY) {
-    // R nasal ≈ angle 0; L nasal ≈ π. Prefer lower-nasal for pads.
-    const targetA = side === 'R' ? -0.55 : Math.PI + 0.55;
-    let best = ring[0];
-    let bestScore = Infinity;
-    for (let i = 0; i < ring.length; i++) {
-      const p = ring[i];
-      const dy = p.y - targetY;
-      const da = Math.abs(angleDiff(p.a, targetA));
-      const score = dy * dy + da * da * 40;
-      if (score < bestScore) {
-        bestScore = score;
-        best = p;
+  function sampleNasalInnerArc(ring, side, y0, y1, n) {
+    const nasalA = side === 'R' ? 0 : Math.PI;
+    const nasal = [];
+    for (let k = 0; k < ring.length; k++) {
+      if (Math.abs(angleDiff(ring[k].a, nasalA)) <= 1.05) nasal.push(ring[k]);
+    }
+    const src = nasal.length >= 8 ? nasal : ring;
+    const pts = [];
+    for (let i = 0; i < n; i++) {
+      const y = y0 + (n === 1 ? 0 : (i / (n - 1)) * (y1 - y0));
+      let best = src[0];
+      let bestScore = Infinity;
+      for (let k = 0; k < src.length; k++) {
+        const p = src[k];
+        const score = Math.abs(p.y - y) + Math.abs(angleDiff(p.a, nasalA)) * 2;
+        if (score < bestScore) {
+          bestScore = score;
+          best = p;
+        }
       }
+      pts.push({ x: best.x, y: y, a: best.a });
     }
-    return best;
+    return pts;
   }
 
-  function normalize3(x, y, z) {
-    const len = Math.hypot(x, y, z) || 1;
-    return { x: x / len, y: y / len, z: z / len };
+  function offsetIntoRim(p, origin, overlap) {
+    const dx = p.x - origin.x;
+    const dy = p.y - origin.y;
+    const len = Math.hypot(dx, dy) || 1;
+    return { x: p.x + (dx / len) * overlap, y: p.y + (dy / len) * overlap };
   }
 
-  function dot3(a, b) {
-    return a.x * b.x + a.y * b.y + a.z * b.z;
+  function averageX(pts) {
+    let s = 0;
+    for (let i = 0; i < pts.length; i++) s += pts[i].x;
+    return s / pts.length;
   }
 
-  function cross3(a, b) {
-    return {
-      x: a.y * b.z - a.z * b.y,
-      y: a.z * b.x - a.x * b.z,
-      z: a.x * b.y - a.y * b.x,
-    };
-  }
-
-  /** Elliptical slab in local basis (ex, ey) extruded ±halfT along ez */
-  function extrudeEllipse(center, ex, ey, ez, halfW, halfH, halfT, segs, name) {
+  /**
+   * Solid strip between rim-root polyline and nose-edge polyline.
+   * Contact edge is sheared toward the face (−Z) by pad tilt.
+   */
+  function extrudePadStrip(root, edge, depth, tilt, towardNose, attachX, name) {
+    const n = Math.min(root.length, edge.length);
+    if (n < 2) return emptyMesh(name);
+    const z1 = depth / 2;
+    const z0 = -depth / 2;
+    const k = Math.tan(tilt);
     const positions = [];
     const indices = [];
 
-    function addLocal(lx, ly, lz) {
-      positions.push(
-        center.x + ex.x * lx + ey.x * ly + ez.x * lz,
-        center.y + ex.y * lx + ey.y * ly + ez.y * lz,
-        center.z + ex.z * lx + ey.z * ly + ez.z * lz
-      );
+    function add(x, y, z) {
+      positions.push(x, y, z);
       return positions.length / 3 - 1;
     }
 
-    const front = [];
-    const back = [];
-    for (let i = 0; i < segs; i++) {
-      const a = (i / segs) * Math.PI * 2;
-      const lx = Math.cos(a) * halfW;
-      const ly = Math.sin(a) * halfH;
-      front.push(addLocal(lx, ly, halfT));
-      back.push(addLocal(lx, ly, -halfT));
+    function shearZ(x) {
+      const inward = Math.max(0, (x - attachX) * towardNose);
+      return -inward * k;
     }
 
-    // Caps (fan)
-    const frontC = addLocal(0, 0, halfT);
-    const backC = addLocal(0, 0, -halfT);
-    for (let i = 0; i < segs; i++) {
-      const j = (i + 1) % segs;
-      indices.push(frontC, front[i], front[j]);
-      indices.push(backC, back[j], back[i]);
-      indices.push(front[i], back[i], back[j]);
-      indices.push(front[i], back[j], front[j]);
+    const fRoot = [];
+    const bRoot = [];
+    const fEdge = [];
+    const bEdge = [];
+    for (let i = 0; i < n; i++) {
+      const rz = shearZ(root[i].x);
+      const ez = shearZ(edge[i].x);
+      fRoot.push(add(root[i].x, root[i].y, z1 + rz));
+      bRoot.push(add(root[i].x, root[i].y, z0 + rz));
+      fEdge.push(add(edge[i].x, edge[i].y, z1 + ez));
+      bEdge.push(add(edge[i].x, edge[i].y, z0 + ez));
     }
 
-    return { name: name, positions: positions, indices: indices };
-  }
+    const sign = edge[0].x - root[0].x >= 0 ? 1 : -1;
 
-  /** Square-ish prism between two 3D points */
-  function extrudeStem(a, b, size, name) {
-    const dir = normalize3(b.x - a.x, b.y - a.y, b.z - a.z);
-    const len = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
-    if (len < 0.2) return emptyMesh(name);
-
-    // Build orthonormal frame
-    let ref = Math.abs(dir.y) < 0.9 ? { x: 0, y: 1, z: 0 } : { x: 1, y: 0, z: 0 };
-    let u = cross3(dir, ref);
-    u = normalize3(u.x, u.y, u.z);
-    let v = cross3(dir, u);
-    v = normalize3(v.x, v.y, v.z);
-    const h = size / 2;
-
-    const cornersA = [
-      { x: a.x + (-u.x - v.x) * h, y: a.y + (-u.y - v.y) * h, z: a.z + (-u.z - v.z) * h },
-      { x: a.x + (u.x - v.x) * h, y: a.y + (u.y - v.y) * h, z: a.z + (u.z - v.z) * h },
-      { x: a.x + (u.x + v.x) * h, y: a.y + (u.y + v.y) * h, z: a.z + (u.z + v.z) * h },
-      { x: a.x + (-u.x + v.x) * h, y: a.y + (-u.y + v.y) * h, z: a.z + (-u.z + v.z) * h },
-    ];
-    const cornersB = [
-      { x: b.x + (-u.x - v.x) * h, y: b.y + (-u.y - v.y) * h, z: b.z + (-u.z - v.z) * h },
-      { x: b.x + (u.x - v.x) * h, y: b.y + (u.y - v.y) * h, z: b.z + (u.z - v.z) * h },
-      { x: b.x + (u.x + v.x) * h, y: b.y + (u.y + v.y) * h, z: b.z + (u.z + v.z) * h },
-      { x: b.x + (-u.x + v.x) * h, y: b.y + (-u.y + v.y) * h, z: b.z + (-u.z + v.z) * h },
-    ];
-
-    const positions = [];
-    const indices = [];
-    function add(p) {
-      positions.push(p.x, p.y, p.z);
-      return positions.length / 3 - 1;
+    function tri(a, b, c) {
+      if (sign >= 0) indices.push(a, b, c);
+      else indices.push(a, c, b);
     }
-    const ia = cornersA.map(add);
-    const ib = cornersB.map(add);
 
-    // Cap A (outward = −dir), Cap B (+dir)
-    indices.push(ia[0], ia[2], ia[1], ia[0], ia[3], ia[2]);
-    indices.push(ib[0], ib[1], ib[2], ib[0], ib[2], ib[3]);
-    for (let i = 0; i < 4; i++) {
-      const j = (i + 1) % 4;
-      indices.push(ia[i], ib[i], ib[j]);
-      indices.push(ia[i], ib[j], ia[j]);
+    for (let i = 0; i < n - 1; i++) {
+      const j = i + 1;
+      // front (toward +Z): root → up → edge
+      tri(fRoot[i], fRoot[j], fEdge[j]);
+      tri(fRoot[i], fEdge[j], fEdge[i]);
+      // back (toward −Z)
+      tri(bRoot[i], bEdge[i], bEdge[j]);
+      tri(bRoot[i], bEdge[j], bRoot[j]);
+      // nose (contact) wall
+      tri(fEdge[i], bEdge[j], bEdge[i]);
+      tri(fEdge[i], fEdge[j], bEdge[j]);
+      // rim-root wall
+      tri(fRoot[i], bRoot[i], bRoot[j]);
+      tri(fRoot[i], bRoot[j], fRoot[j]);
     }
+    // bottom cap i=0
+    tri(fRoot[0], fEdge[0], bEdge[0]);
+    tri(fRoot[0], bEdge[0], bRoot[0]);
+    // top cap i=n-1
+    const t = n - 1;
+    tri(fRoot[t], bRoot[t], bEdge[t]);
+    tri(fRoot[t], bEdge[t], fEdge[t]);
 
     return { name: name, positions: positions, indices: indices };
   }

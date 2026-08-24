@@ -51,6 +51,7 @@
       radius: 160,
       target: new THREE.Vector3(0, 0, 0),
     };
+    let hasFramedModel = false;
 
     let dragging = false;
     let lastX = 0;
@@ -134,8 +135,8 @@
       geo.computeVertexNormals();
       const mat = new THREE.MeshStandardMaterial({
         color: color,
-        metalness: 0.05,
-        roughness: 0.55,
+        metalness: 0.02,
+        roughness: 0.72,
         transparent: opacity < 1,
         opacity: opacity,
         side: THREE.DoubleSide,
@@ -145,20 +146,22 @@
 
     function setModel(model) {
       clearGroup();
-      if (!model || !model.ok) return;
+      if (!model || !model.ok) {
+        hasFramedModel = false;
+        return;
+      }
 
-      const rimMatColor = 0x1a5c58;
-      const bridgeColor = 0x245a8a;
+      const frameColor = 0xf3eadc;
+      const padColor = 0xe7d8c4;
 
       if (model.parts) {
         model.parts.forEach(function (part) {
           if (!part.positions.length) return;
-          const color =
-            part.name === 'bridge' ? bridgeColor : part.name.indexOf('pad-') === 0 ? 0x2e7a72 : rimMatColor;
+          const color = part.name.indexOf('pad-') === 0 ? padColor : frameColor;
           frameGroup.add(meshFromData(part, color, 1));
         });
       } else if (model.mesh) {
-        frameGroup.add(meshFromData(model.mesh, rimMatColor, 1));
+        frameGroup.add(meshFromData(model.mesh, frameColor, 1));
       }
 
       // Lens openings as faint discs hint
@@ -176,9 +179,9 @@
           const m = new THREE.Mesh(
             g,
             new THREE.MeshBasicMaterial({
-              color: 0x9ec5c2,
+              color: 0xb7c4ce,
               transparent: true,
-              opacity: 0.22,
+              opacity: 0.32,
               side: THREE.DoubleSide,
             })
           );
@@ -187,12 +190,14 @@
         });
       }
 
-      // Fit camera
       const box = new THREE.Box3().setFromObject(frameGroup);
       const size = box.getSize(new THREE.Vector3());
       const center = box.getCenter(new THREE.Vector3());
       orbit.target.copy(center);
-      orbit.radius = Math.max(size.x, size.y, size.z) * 1.6 || 160;
+      if (!hasFramedModel) {
+        orbit.radius = Math.max(size.x, size.y, size.z) * 1.6 || 160;
+        hasFramedModel = true;
+      }
       applyOrbit();
     }
 

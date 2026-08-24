@@ -149,10 +149,10 @@
           else ctx.lineTo(s.x, s.y);
         }
         ctx.closePath();
-        ctx.fillStyle = 'rgba(11, 110, 106, 0.35)';
+        ctx.fillStyle = 'rgba(11, 110, 106, 0.55)';
         ctx.fill();
-        ctx.strokeStyle = 'rgba(11, 110, 106, 0.95)';
-        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = 'rgba(11, 110, 106, 1)';
+        ctx.lineWidth = 2;
         ctx.stroke();
       });
     }

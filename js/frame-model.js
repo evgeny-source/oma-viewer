@@ -13,7 +13,7 @@
     bridgeDrop: 0, // vertical offset of bridge center (mm, + up)
     bridgeReach: 2.0, // how far bridge overlaps into each rim (mm)
     // Molded plastic nose pads: teardrop mounds on the nasal rim, inside the outline
-    padWidth: 3.2, // how much of the rim width (inner→outer) the pad fills
+    padWidth: 3.2, // how far the pad extends inward from the outer rim
     padHeight: 14.0, // length along the inner nasal rim
     padThickness: 1.6, // extra mound toward the face (−Z), front stays flush
     padGap: 16.0, // min distance between contact faces (clamped to the outer rim)
@@ -194,8 +194,7 @@
 
   /**
    * Acetate-style pads: teardrop mounds on the nasal rim.
-   * Stay between inner and outer rings (never past the frame outline)
-   * and never past the front face.
+   * The nose-facing edge sits on the outer contour and follows rimWidth.
    */
   function buildNosePads(rimR, rimL, params) {
     if (params.padWidth < 0.2 || params.padHeight < 2 || params.rimDepth < 0.4) {
@@ -207,7 +206,6 @@
   }
 
   function buildPlasticPad(rim, side, params) {
-    const towardNose = side === 'R' ? 1 : -1;
     const yMid = params.padDrop;
     const halfH = params.padHeight / 2;
     const y0 = yMid - halfH;
@@ -216,55 +214,31 @@
     const pairs = sampleNasalPairs(rim, side, y0, y1, n);
     if (pairs.length < 3) return null;
 
-    const gapLimit = -towardNose * (params.padGap / 2);
     const root = [];
     const edge = [];
     const env = [];
 
     for (let i = 0; i < pairs.length; i++) {
-      const pair = pairs[i];
-      const inn = pair.inner;
-      const out = pair.outer;
-      const spanX = out.x - inn.x;
-      const spanY = out.y - inn.y;
-      const span = Math.hypot(spanX, spanY) || 1;
-      const ux = spanX / span;
-      const uy = spanY / span;
-      const bulge = padEnvelope(pair.t);
+      const inn = pairs[i].inner;
+      const out = pairs[i].outer;
+      const bulge = padEnvelope(pairs[i].t);
       env.push(bulge);
 
-      const maxTravel = Math.max(0.25, span - 0.05);
-      const travel = Math.min(params.padWidth, maxTravel) * (0.12 + 0.88 * bulge);
-      let tEdge = travel / span;
-      if (tEdge > 1) tEdge = 1;
-      if (tEdge < 0.04) tEdge = 0.04;
+      // Outer (nose-facing) edge is glued to the outer rim.
+      edge.push({ x: out.x, y: out.y });
 
-      let ex = inn.x + spanX * tEdge;
-      let ey = inn.y + spanY * tEdge;
-
-      if (towardNose > 0 && ex > gapLimit) {
-        const tGap = (gapLimit - inn.x) / (spanX || 1);
-        if (tGap < tEdge && tGap > 0.04) {
-          tEdge = tGap;
-          ex = inn.x + spanX * tEdge;
-          ey = inn.y + spanY * tEdge;
-        }
-      } else if (towardNose < 0 && ex < gapLimit) {
-        const tGap = (gapLimit - inn.x) / (spanX || 1);
-        if (tGap < tEdge && tGap > 0.04) {
-          tEdge = tGap;
-          ex = inn.x + spanX * tEdge;
-          ey = inn.y + spanY * tEdge;
-        }
-      }
-
-      const clamped = clampToSegment(inn, out, { x: ex, y: ey });
-      const rootT = Math.min(0.18, tEdge * 0.25);
+      const spanX = inn.x - out.x;
+      const spanY = inn.y - out.y;
+      const span = Math.hypot(spanX, spanY) || 1;
+      const maxIn = Math.max(0.3, span - 0.05);
+      const inset = Math.min(params.padWidth, maxIn) * (0.18 + 0.82 * bulge);
+      let t = inset / span;
+      if (t < 0.06) t = 0.06;
+      if (t > 0.97) t = 0.97;
       root.push({
-        x: inn.x + ux * span * rootT,
-        y: inn.y + uy * span * rootT,
+        x: out.x + spanX * t,
+        y: out.y + spanY * t,
       });
-      edge.push(clamped);
     }
 
     const mesh = extrudePadOnRim(root, edge, env, params, 'pad-' + side);

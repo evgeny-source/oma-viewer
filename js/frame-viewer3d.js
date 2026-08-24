@@ -153,7 +153,8 @@
       if (model.parts) {
         model.parts.forEach(function (part) {
           if (!part.positions.length) return;
-          const color = part.name === 'bridge' ? bridgeColor : rimMatColor;
+          const color =
+            part.name === 'bridge' ? bridgeColor : part.name.indexOf('pad-') === 0 ? 0x2e7a72 : rimMatColor;
           frameGroup.add(meshFromData(part, color, 1));
         });
       } else if (model.mesh) {

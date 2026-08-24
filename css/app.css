@@ -453,6 +453,17 @@ h1 {
   accent-color: var(--accent);
 }
 
+.ctrl-section {
+  margin: 8px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 .btn-block {
   width: 100%;
   text-align: center;

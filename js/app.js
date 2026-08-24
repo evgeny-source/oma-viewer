@@ -94,6 +94,14 @@ R=2753;2752;2751;2752;2753;2754;2755;2756;2757;2758
     'bridgeDepth',
     'bridgeDrop',
     'bridgeReach',
+    'padWidth',
+    'padHeight',
+    'padThickness',
+    'padGap',
+    'padDrop',
+    'padReach',
+    'padTilt',
+    'padStem',
   ];
 
   const els = {
@@ -172,8 +180,8 @@ R=2753;2752;2751;2752;2753;2754;2755;2756;2757;2758
     if (!input) return;
     input.addEventListener('input', function () {
       frameParams[key] = parseFloat(input.value);
-      document.getElementById('val-' + key).textContent = frameParams[key].toFixed(1);
-      // Keep bridge depth linked optionally? No вЂ” independent.
+      const digits = key === 'padTilt' ? 0 : 1;
+      document.getElementById('val-' + key).textContent = frameParams[key].toFixed(digits);
       rebuildFrame();
       renderViews();
     });
@@ -267,7 +275,10 @@ R=2753;2752;2751;2752;2753;2754;2755;2756;2757;2758
       const label = document.getElementById('val-' + key);
       if (!input) return;
       input.value = String(frameParams[key]);
-      if (label) label.textContent = Number(frameParams[key]).toFixed(1);
+      if (label) {
+        const digits = key === 'padTilt' ? 0 : 1;
+        label.textContent = Number(frameParams[key]).toFixed(digits);
+      }
     });
   }
 

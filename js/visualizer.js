@@ -136,6 +136,37 @@
       ctx.lineWidth = 1.5;
       ctx.stroke();
     }
+
+    if (frameModel.pads) {
+      ['R', 'L'].forEach(function (side) {
+        const pad = frameModel.pads[side];
+        if (!pad || !pad.outline2d) return;
+        const o = pad.outline2d;
+        ctx.beginPath();
+        for (let i = 0; i < o.length; i++) {
+          const s = worldToScreen(o[i].x, o[i].y);
+          if (i === 0) ctx.moveTo(s.x, s.y);
+          else ctx.lineTo(s.x, s.y);
+        }
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(11, 110, 106, 0.35)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(11, 110, 106, 0.95)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        if (pad.attach) {
+          const a = worldToScreen(pad.attach.x, pad.attach.y);
+          const c = worldToScreen(pad.center.x, pad.center.y);
+          ctx.strokeStyle = 'rgba(11, 110, 106, 0.55)';
+          ctx.lineWidth = 1.25;
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(c.x, c.y);
+          ctx.stroke();
+        }
+      });
+    }
   }
 
   function layoutEyes(args) {

@@ -227,7 +227,6 @@
     const pairs = sampleNasalPairs(rim, side, y0, y1, n);
     if (pairs.length < 3) return null;
 
-    const targetX = -towardNose * (params.padGap / 2);
     const root = [];
     const edge = [];
     const env = [];
@@ -242,11 +241,11 @@
       const spanY = inn.y - out.y;
       const span = Math.hypot(spanX, spanY) || 1;
 
-      // Nose-face: pull toward ±padGap/2 along the rim, rest on the outer edge.
-      let tEdge = (targetX - out.x) / (spanX || 1);
-      const tPast = 2.0 / span;
-      if (tEdge < -tPast) tEdge = -tPast;
-      if (tEdge > 0.9) tEdge = 0.9;
+      // Glued to the outer rim. Extra padGap only insets into the rim, never past it.
+      const extraApart = Math.max(0, (params.padGap - DEFAULTS.padGap) / 2);
+      let tEdge = extraApart / span;
+      if (tEdge < 0) tEdge = 0;
+      if (tEdge > 0.85) tEdge = 0.85;
       edge.push({
         x: out.x + spanX * tEdge,
         y: out.y + spanY * tEdge,
@@ -360,12 +359,24 @@
     for (let i = 0; i < n; i++) {
       const e = env && env[i] != null ? env[i] : 1;
       const backExtra = -bulge * e;
-      // Inward tilt: back of the contact wall leans toward the midline / nose
-      const inward = towardNose * Math.tan(tilt) * (params.rimDepth + bulge) * 0.55 * e;
+      // Tilt into the rim (toward the inner hole), never past the outer edge.
+      const dx = root[i].x - edge[i].x;
+      const dy = root[i].y - edge[i].y;
+      const len = Math.hypot(dx, dy) || 1;
+      const tiltAlong = Math.min(
+        Math.tan(tilt) * (params.rimDepth + bulge) * 0.4 * e,
+        len * 0.45
+      );
       fRoot.push(add(root[i].x, root[i].y, zF));
       bRoot.push(add(root[i].x, root[i].y, zB));
       fEdge.push(add(edge[i].x, edge[i].y, zF));
-      bEdge.push(add(edge[i].x + inward, edge[i].y, zB + backExtra));
+      bEdge.push(
+        add(
+          edge[i].x + (dx / len) * tiltAlong,
+          edge[i].y + (dy / len) * tiltAlong,
+          zB + backExtra
+        )
+      );
     }
 
     const sign = edge[0].x - root[0].x >= 0 ? 1 : -1;

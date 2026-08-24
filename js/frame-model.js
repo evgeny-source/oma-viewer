@@ -19,6 +19,9 @@
     padGap: 12.0, // distance between nose-facing contact walls
     padDrop: -5.0, // vertical position of pad centers (mm, + up)
     padTilt: 14.0, // inward bevel of the contact face (degrees)
+    // Lens glazing groove (facet) on the inner rim wall
+    facetDepth: 0.8, // radial cut into the rim from the inner hole
+    facetPos: 0.0, // Z offset from rim mid-plane (+ toward front)
   };
 
   const PAD_MIN_THICK = 1.5;
@@ -66,8 +69,8 @@
     const pads = buildNosePads(worldR, worldL, params);
 
     const meshes = [];
-    meshes.push(extrudeRing(worldR.outer, worldR.inner, params.rimDepth, 'rim-R'));
-    meshes.push(extrudeRing(worldL.outer, worldL.inner, params.rimDepth, 'rim-L'));
+    meshes.push(extrudeRimWithFacet(worldR.outer, worldR.inner, params, 'rim-R'));
+    meshes.push(extrudeRimWithFacet(worldL.outer, worldL.inner, params, 'rim-L'));
     if (bridge) meshes.push(extrudePolygon(bridge.outline, params.bridgeDepth, 'bridge'));
     if (pads) {
       if (pads.R && pads.R.mesh) meshes.push(pads.R.mesh);
@@ -81,7 +84,10 @@
       params: params,
       origins: { R: originR, L: originL },
       gap: gap,
-      rims: { R: worldR, L: worldL },
+      rims: {
+        R: Object.assign({ groove: offsetRingToward(worldR.inner, worldR.outer, grooveDepth(params)) }, worldR),
+        L: Object.assign({ groove: offsetRingToward(worldL.inner, worldL.outer, grooveDepth(params)) }, worldL),
+      },
       bridge: bridge,
       pads: pads,
       mesh: combined,
@@ -420,6 +426,105 @@
     let s = 0;
     for (let i = 0; i < pts.length; i++) s += pts[i].y;
     return s / pts.length;
+  }
+
+  function grooveDepth(params) {
+    const maxD = Math.max(0, params.rimWidth - 0.6);
+    return Math.max(0, Math.min(params.facetDepth, maxD));
+  }
+
+  function offsetRingToward(from, toward, dist) {
+    const n = Math.min(from.length, toward.length);
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const dx = toward[i].x - from[i].x;
+      const dy = toward[i].y - from[i].y;
+      const len = Math.hypot(dx, dy) || 1;
+      const d = Math.min(dist, Math.max(0, len - 0.4));
+      out.push({
+        x: from[i].x + (dx / len) * d,
+        y: from[i].y + (dy / len) * d,
+        a: from[i].a,
+      });
+    }
+    return out;
+  }
+
+  function facetZ(params) {
+    const half = params.rimDepth / 2;
+    const grooveW = Math.min(1.3, Math.max(0.7, params.rimDepth * 0.38));
+    const maxPos = Math.max(0, half - grooveW / 2 - 0.22);
+    let z = params.facetPos;
+    if (z > maxPos) z = maxPos;
+    if (z < -maxPos) z = -maxPos;
+    return { z: z, halfW: grooveW / 2, z1: half, z0: -half };
+  }
+
+  /**
+   * Rim annulus with a V-groove on the inner wall for the lens bevel.
+   */
+  function extrudeRimWithFacet(outer, inner, params, name) {
+    const depthCut = grooveDepth(params);
+    if (depthCut < 0.05) return extrudeRing(outer, inner, params.rimDepth, name);
+
+    const n = Math.min(outer.length, inner.length);
+    if (n < 3) return emptyMesh(name);
+
+    const fz = facetZ(params);
+    const z1 = fz.z1;
+    const z0 = fz.z0;
+    const zGf = fz.z + fz.halfW;
+    const zGb = fz.z - fz.halfW;
+    const zG = fz.z;
+    const groove = offsetRingToward(inner, outer, depthCut);
+
+    const positions = [];
+    const indices = [];
+    function add(x, y, z) {
+      positions.push(x, y, z);
+      return positions.length / 3 - 1;
+    }
+
+    const fOuter = [];
+    const bOuter = [];
+    const inF = [];
+    const inLipF = [];
+    const inBot = [];
+    const inLipB = [];
+    const inB = [];
+    for (let i = 0; i < n; i++) {
+      fOuter.push(add(outer[i].x, outer[i].y, z1));
+      bOuter.push(add(outer[i].x, outer[i].y, z0));
+      inF.push(add(inner[i].x, inner[i].y, z1));
+      inLipF.push(add(inner[i].x, inner[i].y, zGf));
+      inBot.push(add(groove[i].x, groove[i].y, zG));
+      inLipB.push(add(inner[i].x, inner[i].y, zGb));
+      inB.push(add(inner[i].x, inner[i].y, z0));
+    }
+
+    function strip(a, b) {
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        indices.push(a[j], b[j], b[i]);
+        indices.push(a[j], b[i], a[i]);
+      }
+    }
+
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      indices.push(fOuter[i], fOuter[j], inF[j]);
+      indices.push(fOuter[i], inF[j], inF[i]);
+      indices.push(bOuter[j], bOuter[i], inB[i]);
+      indices.push(bOuter[j], inB[i], inB[j]);
+      indices.push(fOuter[i], bOuter[i], bOuter[j]);
+      indices.push(fOuter[i], bOuter[j], fOuter[j]);
+    }
+    strip(inF, inLipF);
+    strip(inLipF, inBot);
+    strip(inBot, inLipB);
+    strip(inLipB, inB);
+
+    return { name: name, positions: positions, indices: indices };
   }
 
   /** Annular prism: outer CCW, inner CW for correct normals */

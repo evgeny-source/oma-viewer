@@ -119,6 +119,9 @@
       if (!rim) return;
       strokeRing(rim.outer, 'rgba(26, 36, 48, 0.75)', 2);
       strokeRing(rim.inner, 'rgba(26, 36, 48, 0.35)', 1.25);
+      if (rim.groove && rim.groove.length) {
+        strokeRing(rim.groove, 'rgba(138, 75, 18, 0.75)', 1.35);
+      }
     });
 
     if (frameModel.bridge && frameModel.bridge.outline) {

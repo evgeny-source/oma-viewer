@@ -41,11 +41,13 @@
     scene.add(grid);
 
     let frameGroup = new THREE.Group();
+    // Front of the frame (+Z) faces the print bed (−Z): inner side and pads stay visible from above.
+    frameGroup.rotation.x = Math.PI;
     scene.add(frameGroup);
 
     const orbit = {
       theta: 0.35,
-      phi: 1.05,
+      phi: 0.85,
       radius: 160,
       target: new THREE.Vector3(0, 0, 0),
     };

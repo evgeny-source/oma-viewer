@@ -15,14 +15,19 @@
     // Molded plastic nose pads: teardrop mounds on the nasal rim, inside the outline
     padWidth: 3.2, // how far the pad extends inward from the outer rim
     padHeight: 14.0, // length along the inner nasal rim
-    padThickness: 1.6, // extra mound toward the face (−Z), front stays flush
-    padGap: 16.0, // min distance between contact faces (clamped to the outer rim)
+    padThickness: 1.6, // extra mound toward the face (−Z), min 1.5 mm
+    padGap: 12.0, // distance between nose-facing contact walls
     padDrop: -5.0, // vertical position of pad centers (mm, + up)
-    padTilt: 14.0, // bevel of the nose-facing wall (degrees)
+    padTilt: 14.0, // inward bevel of the contact face (degrees)
   };
 
+  const PAD_MIN_THICK = 1.5;
+
   function cloneParams(p) {
-    return Object.assign({}, DEFAULTS, p || {});
+    const out = Object.assign({}, DEFAULTS, p || {});
+    out.padWidth = Math.max(PAD_MIN_THICK, out.padWidth);
+    out.padThickness = Math.max(PAD_MIN_THICK, out.padThickness);
+    return out;
   }
 
   /**
@@ -194,10 +199,11 @@
 
   /**
    * Acetate-style pads: teardrop mounds on the nasal rim.
-   * The nose-facing edge sits on the outer contour and follows rimWidth.
+   * Front of the nose-face sits on the outer contour; padGap and padTilt
+   * move / bevel that contact wall. Thickness is at least 1.5 mm.
    */
   function buildNosePads(rimR, rimL, params) {
-    if (params.padWidth < 0.2 || params.padHeight < 2 || params.rimDepth < 0.4) {
+    if (params.padHeight < 2 || params.rimDepth < 0.4) {
       return null;
     }
     const padR = buildPlasticPad(rimR, 'R', params);
@@ -206,6 +212,7 @@
   }
 
   function buildPlasticPad(rim, side, params) {
+    const towardNose = side === 'R' ? 1 : -1;
     const yMid = params.padDrop;
     const halfH = params.padHeight / 2;
     const y0 = yMid - halfH;
@@ -214,6 +221,7 @@
     const pairs = sampleNasalPairs(rim, side, y0, y1, n);
     if (pairs.length < 3) return null;
 
+    const targetX = -towardNose * (params.padGap / 2);
     const root = [];
     const edge = [];
     const env = [];
@@ -224,24 +232,32 @@
       const bulge = padEnvelope(pairs[i].t);
       env.push(bulge);
 
-      // Outer (nose-facing) edge is glued to the outer rim.
-      edge.push({ x: out.x, y: out.y });
-
       const spanX = inn.x - out.x;
       const spanY = inn.y - out.y;
       const span = Math.hypot(spanX, spanY) || 1;
-      const maxIn = Math.max(0.3, span - 0.05);
-      const inset = Math.min(params.padWidth, maxIn) * (0.18 + 0.82 * bulge);
-      let t = inset / span;
-      if (t < 0.06) t = 0.06;
-      if (t > 0.97) t = 0.97;
+
+      // Nose-face: pull toward ±padGap/2 along the rim, rest on the outer edge.
+      let tEdge = (targetX - out.x) / (spanX || 1);
+      const tPast = 2.0 / span;
+      if (tEdge < -tPast) tEdge = -tPast;
+      if (tEdge > 0.9) tEdge = 0.9;
+      edge.push({
+        x: out.x + spanX * tEdge,
+        y: out.y + spanY * tEdge,
+      });
+
+      const maxIn = Math.max(PAD_MIN_THICK, span - 0.05);
+      const inset = Math.max(PAD_MIN_THICK, Math.min(params.padWidth, maxIn) * (0.22 + 0.78 * bulge));
+      let tRoot = tEdge + inset / span;
+      if (tRoot < tEdge + 0.08) tRoot = tEdge + 0.08;
+      if (tRoot > 0.98) tRoot = 0.98;
       root.push({
-        x: out.x + spanX * t,
-        y: out.y + spanY * t,
+        x: out.x + spanX * tRoot,
+        y: out.y + spanY * tRoot,
       });
     }
 
-    const mesh = extrudePadOnRim(root, edge, env, params, 'pad-' + side);
+    const mesh = extrudePadOnRim(root, edge, env, params, towardNose, 'pad-' + side);
     const outline2d = root.concat(edge.slice().reverse());
     const mid = edge[Math.floor(edge.length / 2)] || edge[0];
     return {
@@ -312,26 +328,15 @@
     return best;
   }
 
-  function clampToSegment(a, b, p) {
-    const vx = b.x - a.x;
-    const vy = b.y - a.y;
-    const d2 = vx * vx + vy * vy || 1;
-    let t = ((p.x - a.x) * vx + (p.y - a.y) * vy) / d2;
-    if (t < 0) t = 0;
-    if (t > 1) t = 1;
-    return { x: a.x + vx * t, y: a.y + vy * t };
-  }
-
   /**
-   * Pad prism on the rim: front flush with the rim face, back may mound
-   * toward the wearer. XY stays on the inner→outer segment.
+   * Pad prism on the rim: outer edge on the outer contour, front flush.
    */
-  function extrudePadOnRim(root, edge, env, params, name) {
+  function extrudePadOnRim(root, edge, env, params, towardNose, name) {
     const n = Math.min(root.length, edge.length);
     if (n < 2) return emptyMesh(name);
     const zF = params.rimDepth / 2;
     const zB = -params.rimDepth / 2;
-    const bulge = Math.max(0, params.padThickness);
+    const bulge = Math.max(PAD_MIN_THICK, params.padThickness);
     const tilt = (params.padTilt * Math.PI) / 180;
     const positions = [];
     const indices = [];
@@ -349,11 +354,12 @@
     for (let i = 0; i < n; i++) {
       const e = env && env[i] != null ? env[i] : 1;
       const backExtra = -bulge * e;
-      const slant = Math.tan(tilt) * params.rimDepth * 0.15 * e;
+      // Inward tilt: back of the contact wall leans toward the midline / nose
+      const inward = towardNose * Math.tan(tilt) * (params.rimDepth + bulge) * 0.55 * e;
       fRoot.push(add(root[i].x, root[i].y, zF));
       bRoot.push(add(root[i].x, root[i].y, zB));
       fEdge.push(add(edge[i].x, edge[i].y, zF));
-      bEdge.push(add(edge[i].x, edge[i].y, zB + backExtra - slant));
+      bEdge.push(add(edge[i].x + inward, edge[i].y, zB + backExtra));
     }
 
     const sign = edge[0].x - root[0].x >= 0 ? 1 : -1;

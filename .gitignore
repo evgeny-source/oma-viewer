@@ -1,0 +1,6 @@
+.tools/
+*.7z.exe
+*.zip
+.DS_Store
+Thumbs.db
+*.log

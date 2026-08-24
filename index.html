@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OMA Viewer — рамка для 3D-печати</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="css/app.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="top">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div>
+            <h1>OMA Frame</h1>
+            <p class="tagline">Скан → параметрическая оправа → STL</p>
+          </div>
+        </div>
+        <div class="actions">
+          <label class="btn primary">
+            Открыть .oma
+            <input id="fileInput" type="file" accept=".oma,.txt,text/plain" hidden />
+          </label>
+          <button type="button" class="btn" id="sampleBtn">Пример</button>
+          <button type="button" class="btn" id="exportStlBtn" disabled>Скачать STL</button>
+          <button type="button" class="btn" id="clearBtn" disabled>Сбросить</button>
+        </div>
+      </header>
+
+      <main class="main">
+        <section class="viewport">
+          <div class="tabs" role="tablist">
+            <button type="button" class="tab active" data-tab="scan" id="tabScan">2D скан</button>
+            <button type="button" class="tab" data-tab="frame" id="tabFrame">3D рамка</button>
+          </div>
+
+          <div class="stage tab-panel active" id="panelScan" data-panel="scan">
+            <div id="dropzone" class="drop-fill">
+              <canvas id="canvas" aria-label="Контур оправы"></canvas>
+              <div class="empty" id="emptyState">
+                <p>Перетащите файл <strong>.oma</strong> сюда или откройте с диска</p>
+                <p class="hint">ASCII TRCFMT=1 · радиусы в 0.01 mm</p>
+              </div>
+              <div class="stage-tools">
+                <label class="check"><input type="checkbox" id="togPoints" /> точки</label>
+                <label class="check"><input type="checkbox" id="togGrid" checked /> сетка</label>
+                <label class="check"><input type="checkbox" id="togAxes" checked /> оси</label>
+                <label class="check"><input type="checkbox" id="togFrame2d" checked /> рамка</label>
+              </div>
+            </div>
+          </div>
+
+          <div class="stage tab-panel" id="panelFrame" data-panel="frame">
+            <div class="view3d-wrap">
+              <div id="view3d" class="view3d"></div>
+              <div class="empty" id="empty3d">
+                <p>Загрузите OMA, чтобы построить 3D-рамку</p>
+                <p class="hint">вращайте мышью · колесо — масштаб</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="side">
+          <div class="panel" id="framePanelPanel">
+            <h2>Параметры рамки</h2>
+            <p class="panel-note">R и L меняются симметрично</p>
+            <div class="controls" id="frameControls">
+              <label class="ctrl">
+                <span>Ширина ободка <em id="val-rimWidth">3.0</em> mm</span>
+                <input type="range" id="p-rimWidth" min="1" max="10" step="0.1" value="3" />
+              </label>
+              <label class="ctrl">
+                <span>Толщина рамки <em id="val-rimDepth">4.0</em> mm</span>
+                <input type="range" id="p-rimDepth" min="1" max="12" step="0.1" value="4" />
+              </label>
+              <label class="ctrl">
+                <span>Посадка линзы <em id="val-seatInset">0.4</em> mm</span>
+                <input type="range" id="p-seatInset" min="0" max="2" step="0.05" value="0.4" />
+              </label>
+              <label class="ctrl">
+                <span>Разведение (DBL) <em id="val-dbl">18.0</em> mm</span>
+                <input type="range" id="p-dbl" min="8" max="35" step="0.1" value="18" />
+              </label>
+              <label class="ctrl">
+                <span>Высота перемычки <em id="val-bridgeHeight">4.0</em> mm</span>
+                <input type="range" id="p-bridgeHeight" min="1" max="12" step="0.1" value="4" />
+              </label>
+              <label class="ctrl">
+                <span>Толщина перемычки <em id="val-bridgeDepth">4.0</em> mm</span>
+                <input type="range" id="p-bridgeDepth" min="1" max="12" step="0.1" value="4" />
+              </label>
+              <label class="ctrl">
+                <span>Сдвиг перемычки ↑↓ <em id="val-bridgeDrop">0.0</em> mm</span>
+                <input type="range" id="p-bridgeDrop" min="-10" max="10" step="0.1" value="0" />
+              </label>
+              <label class="ctrl">
+                <span>Заход перемычки <em id="val-bridgeReach">2.0</em> mm</span>
+                <input type="range" id="p-bridgeReach" min="0" max="8" step="0.1" value="2" />
+              </label>
+              <button type="button" class="btn btn-block" id="resetParamsBtn" disabled>
+                Сбросить параметры
+              </button>
+            </div>
+          </div>
+
+          <div class="panel" id="filePanel">
+            <h2>Файл</h2>
+            <dl class="kv" id="fileMeta">
+              <div><dt>Имя</dt><dd>—</dd></div>
+            </dl>
+          </div>
+
+          <div class="panel">
+            <h2>Размеры скана</h2>
+            <div id="metrics" class="metrics">
+              <p class="muted">Загрузите скан, чтобы увидеть A / B / ED / CIRC</p>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h2>Записи OMA</h2>
+            <div id="records" class="records muted">—</div>
+          </div>
+
+          <div class="panel warn hidden" id="warnPanel">
+            <h2>Замечания</h2>
+            <ul id="warnings"></ul>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script src="js/oma-parser.js"></script>
+    <script src="js/visualizer.js"></script>
+    <script src="js/frame-model.js"></script>
+    <script src="js/frame-viewer3d.js"></script>
+    <script src="js/app.js"></script>
+  </body>
+</html>

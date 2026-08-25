@@ -91,7 +91,6 @@ R=2753;2752;2751;2752;2753;2754;2755;2756;2757;2758
     'seatInset',
     'dbl',
     'bridgeHeight',
-    'bridgeDepth',
     'bridgeDrop',
     'bridgeReach',
     'facetPos',
@@ -111,6 +110,7 @@ R=2753;2752;2751;2752;2753;2754;2755;2756;2757;2758
     exportStlBtn: document.getElementById('exportStlBtn'),
     resetParamsBtn: document.getElementById('resetParamsBtn'),
     dropzone: document.getElementById('dropzone'),
+    dropzone3d: document.getElementById('dropzone3d'),
     canvas: document.getElementById('canvas'),
     emptyState: document.getElementById('emptyState'),
     empty3d: document.getElementById('empty3d'),
@@ -134,7 +134,7 @@ R=2753;2752;2751;2752;2753;2754;2755;2756;2757;2758
   let frameParams = FrameModel.cloneParams();
   let frameModel = null;
   let viewer3d = null;
-  let activeTab = 'scan';
+  let activeTab = 'frame';
 
   els.fileInput.addEventListener('change', function (e) {
     const file = e.target.files && e.target.files[0];
@@ -194,12 +194,14 @@ R=2753;2752;2751;2752;2753;2754;2755;2756;2757;2758
   });
 
   setupDropzone(els.dropzone);
+  if (els.dropzone3d) setupDropzone(els.dropzone3d);
   window.addEventListener('resize', function () {
     renderCanvas();
     if (viewer3d) viewer3d.resize();
   });
 
   syncParamInputs();
+  setTab('frame');
 
   function setTab(name) {
     activeTab = name;
@@ -209,13 +211,17 @@ R=2753;2752;2751;2752;2753;2754;2755;2756;2757;2758
     document.querySelectorAll('.tab-panel').forEach(function (p) {
       p.classList.toggle('active', p.getAttribute('data-panel') === name);
     });
-    if (name === 'frame') {
-      ensureViewer3d();
-      if (viewer3d) {
-        viewer3d.resize();
-        viewer3d.setModel(frameModel);
+    requestAnimationFrame(function () {
+      if (name === 'frame') {
+        ensureViewer3d();
+        if (viewer3d) {
+          viewer3d.resize();
+          viewer3d.setModel(frameModel);
+        }
+      } else {
+        renderCanvas();
       }
-    }
+    });
   }
 
   function ensureViewer3d() {

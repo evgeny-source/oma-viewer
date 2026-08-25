@@ -9,7 +9,6 @@
     seatInset: 0.4, // hole smaller than scan (lens seat)
     dbl: 18.0, // distance between lens boxes (bridge gap)
     bridgeHeight: 4.0, // vertical thickness of bridge bar
-    bridgeDepth: 4.0, // Z of bridge (often = rimDepth)
     bridgeDrop: 0, // vertical offset of bridge center (mm, + up)
     bridgeReach: 2.0, // how far bridge overlaps into each rim (mm)
     // Molded plastic nose pads: teardrop mounds on the nasal rim, inside the outline
@@ -30,6 +29,7 @@
     const out = Object.assign({}, DEFAULTS, p || {});
     out.padWidth = Math.max(PAD_MIN_THICK, out.padWidth);
     out.padThickness = Math.max(PAD_MIN_THICK, out.padThickness);
+    out.bridgeDepth = out.rimDepth;
     return out;
   }
 
@@ -71,7 +71,7 @@
     const meshes = [];
     meshes.push(extrudeRimWithFacet(worldR.outer, worldR.inner, params, 'rim-R'));
     meshes.push(extrudeRimWithFacet(worldL.outer, worldL.inner, params, 'rim-L'));
-    if (bridge) meshes.push(extrudePolygon(bridge.outline, params.bridgeDepth, 'bridge'));
+    if (bridge) meshes.push(extrudePolygon(bridge.outline, params.rimDepth, 'bridge'));
     if (pads) {
       if (pads.R && pads.R.mesh) meshes.push(pads.R.mesh);
       if (pads.L && pads.L.mesh) meshes.push(pads.L.mesh);

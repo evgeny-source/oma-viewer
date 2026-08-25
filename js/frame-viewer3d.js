@@ -15,7 +15,7 @@
 
     const THREE = global.THREE;
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xe8edf1);
+    scene.background = new THREE.Color(0xd5dee6);
 
     const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 2000);
     camera.position.set(0, -120, 90);
@@ -27,12 +27,12 @@
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
 
-    const hemi = new THREE.HemisphereLight(0xffffff, 0xb0c0c8, 0.85);
+    const hemi = new THREE.HemisphereLight(0xffffff, 0xa8b4bc, 0.95);
     scene.add(hemi);
-    const key = new THREE.DirectionalLight(0xffffff, 0.7);
+    const key = new THREE.DirectionalLight(0xffffff, 0.85);
     key.position.set(40, -60, 80);
     scene.add(key);
-    const fill = new THREE.DirectionalLight(0xa8c4ff, 0.35);
+    const fill = new THREE.DirectionalLight(0xd8e4f0, 0.4);
     fill.position.set(-50, 40, 30);
     scene.add(fill);
 
@@ -209,6 +209,11 @@
     resize();
     applyOrbit();
     tick();
+    if (typeof ResizeObserver !== 'undefined') {
+      new ResizeObserver(function () {
+        resize();
+      }).observe(container);
+    }
 
     return {
       ok: true,

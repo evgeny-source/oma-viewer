@@ -36,11 +36,21 @@
       <main class="main">
         <section class="viewport">
           <div class="tabs" role="tablist">
-            <button type="button" class="tab active" data-tab="scan" id="tabScan">2D скан</button>
-            <button type="button" class="tab" data-tab="frame" id="tabFrame">3D рамка</button>
+            <button type="button" class="tab active" data-tab="frame" id="tabFrame">3D рамка</button>
+            <button type="button" class="tab" data-tab="scan" id="tabScan">2D скан</button>
           </div>
 
-          <div class="stage tab-panel active" id="panelScan" data-panel="scan">
+          <div class="stage tab-panel active" id="panelFrame" data-panel="frame">
+            <div class="view3d-wrap" id="dropzone3d">
+              <div id="view3d" class="view3d"></div>
+              <div class="empty" id="empty3d">
+                <p>Загрузите OMA, чтобы построить 3D-рамку</p>
+                <p class="hint">вращайте мышью · колесо — масштаб</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="stage tab-panel" id="panelScan" data-panel="scan">
             <div id="dropzone" class="drop-fill">
               <canvas id="canvas" aria-label="Контур оправы"></canvas>
               <div class="empty" id="emptyState">
@@ -52,16 +62,6 @@
                 <label class="check"><input type="checkbox" id="togGrid" checked /> сетка</label>
                 <label class="check"><input type="checkbox" id="togAxes" checked /> оси</label>
                 <label class="check"><input type="checkbox" id="togFrame2d" checked /> рамка</label>
-              </div>
-            </div>
-          </div>
-
-          <div class="stage tab-panel" id="panelFrame" data-panel="frame">
-            <div class="view3d-wrap">
-              <div id="view3d" class="view3d"></div>
-              <div class="empty" id="empty3d">
-                <p>Загрузите OMA, чтобы построить 3D-рамку</p>
-                <p class="hint">вращайте мышью · колесо — масштаб</p>
               </div>
             </div>
           </div>
@@ -91,10 +91,6 @@
               <label class="ctrl">
                 <span>Высота перемычки <em id="val-bridgeHeight">4.0</em> mm</span>
                 <input type="range" id="p-bridgeHeight" min="1" max="12" step="0.1" value="4" />
-              </label>
-              <label class="ctrl">
-                <span>Толщина перемычки <em id="val-bridgeDepth">4.0</em> mm</span>
-                <input type="range" id="p-bridgeDepth" min="1" max="12" step="0.1" value="4" />
               </label>
               <label class="ctrl">
                 <span>Сдвиг перемычки ↑↓ <em id="val-bridgeDrop">0.0</em> mm</span>

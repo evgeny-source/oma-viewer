@@ -15,7 +15,7 @@
 
     const THREE = global.THREE;
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xe8edf1);
+    scene.background = new THREE.Color(0xd5dee6);
 
     const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 2000);
     camera.position.set(0, -120, 90);
@@ -27,12 +27,12 @@
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
 
-    const hemi = new THREE.HemisphereLight(0xffffff, 0xb0c0c8, 0.85);
+    const hemi = new THREE.HemisphereLight(0xffffff, 0xa8b4bc, 0.95);
     scene.add(hemi);
-    const key = new THREE.DirectionalLight(0xffffff, 0.7);
+    const key = new THREE.DirectionalLight(0xffffff, 0.85);
     key.position.set(40, -60, 80);
     scene.add(key);
-    const fill = new THREE.DirectionalLight(0xa8c4ff, 0.35);
+    const fill = new THREE.DirectionalLight(0xd8e4f0, 0.4);
     fill.position.set(-50, 40, 30);
     scene.add(fill);
 
@@ -41,14 +41,17 @@
     scene.add(grid);
 
     let frameGroup = new THREE.Group();
+    // Front of the frame (+Z) faces the print bed (−Z): inner side and pads stay visible from above.
+    frameGroup.rotation.x = Math.PI;
     scene.add(frameGroup);
 
     const orbit = {
       theta: 0.35,
-      phi: 1.05,
+      phi: 0.85,
       radius: 160,
       target: new THREE.Vector3(0, 0, 0),
     };
+    let hasFramedModel = false;
 
     let dragging = false;
     let lastX = 0;
@@ -124,16 +127,22 @@
       }
     }
 
-    function meshFromData(data, color, opacity) {
-      const geo = new THREE.BufferGeometry();
+    function meshFromData(data, color, opacity, flat) {
+      let geo = new THREE.BufferGeometry();
       const pos = new Float32Array(data.positions);
       geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
       geo.setIndex(data.indices);
-      geo.computeVertexNormals();
+      if (flat) {
+        geo = geo.toNonIndexed();
+        geo.computeVertexNormals();
+      } else {
+        geo.computeVertexNormals();
+      }
       const mat = new THREE.MeshStandardMaterial({
         color: color,
-        metalness: 0.05,
-        roughness: 0.55,
+        metalness: 0.02,
+        roughness: 0.72,
+        flatShading: !!flat,
         transparent: opacity < 1,
         opacity: opacity,
         side: THREE.DoubleSide,
@@ -143,19 +152,23 @@
 
     function setModel(model) {
       clearGroup();
-      if (!model || !model.ok) return;
+      if (!model || !model.ok) {
+        hasFramedModel = false;
+        return;
+      }
 
-      const rimMatColor = 0x1a5c58;
-      const bridgeColor = 0x245a8a;
+      const frameColor = 0xf3eadc;
+      const padColor = 0xe7d8c4;
 
       if (model.parts) {
         model.parts.forEach(function (part) {
           if (!part.positions.length) return;
-          const color = part.name === 'bridge' ? bridgeColor : rimMatColor;
-          frameGroup.add(meshFromData(part, color, 1));
+          const isPad = part.name.indexOf('pad-') === 0;
+          const color = isPad ? padColor : frameColor;
+          frameGroup.add(meshFromData(part, color, 1, !isPad));
         });
       } else if (model.mesh) {
-        frameGroup.add(meshFromData(model.mesh, rimMatColor, 1));
+        frameGroup.add(meshFromData(model.mesh, frameColor, 1, true));
       }
 
       // Lens openings as faint discs hint
@@ -173,9 +186,9 @@
           const m = new THREE.Mesh(
             g,
             new THREE.MeshBasicMaterial({
-              color: 0x9ec5c2,
+              color: 0xb7c4ce,
               transparent: true,
-              opacity: 0.22,
+              opacity: 0.32,
               side: THREE.DoubleSide,
             })
           );
@@ -184,12 +197,14 @@
         });
       }
 
-      // Fit camera
       const box = new THREE.Box3().setFromObject(frameGroup);
       const size = box.getSize(new THREE.Vector3());
       const center = box.getCenter(new THREE.Vector3());
       orbit.target.copy(center);
-      orbit.radius = Math.max(size.x, size.y, size.z) * 1.6 || 160;
+      if (!hasFramedModel) {
+        orbit.radius = Math.max(size.x, size.y, size.z) * 1.6 || 160;
+        hasFramedModel = true;
+      }
       applyOrbit();
     }
 
@@ -201,6 +216,11 @@
     resize();
     applyOrbit();
     tick();
+    if (typeof ResizeObserver !== 'undefined') {
+      new ResizeObserver(function () {
+        resize();
+      }).observe(container);
+    }
 
     return {
       ok: true,

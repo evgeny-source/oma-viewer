@@ -9,13 +9,30 @@
     seatInset: 0.4, // hole smaller than scan (lens seat)
     dbl: 18.0, // distance between lens boxes (bridge gap)
     bridgeHeight: 4.0, // vertical thickness of bridge bar
-    bridgeDepth: 4.0, // Z of bridge (often = rimDepth)
     bridgeDrop: 0, // vertical offset of bridge center (mm, + up)
     bridgeReach: 2.0, // how far bridge overlaps into each rim (mm)
+    // Molded plastic nose pads: teardrop mounds on the nasal rim, inside the outline
+    padWidth: 3.2, // how far the pad extends inward from the outer rim
+    padHeight: 14.0, // length along the inner nasal rim
+    padThickness: 1.6, // extra mound toward the face (−Z), 1–10 mm
+    padGap: 12.0, // distance between nose-facing contact walls
+    padDrop: -5.0, // vertical position of pad centers (mm, + up)
+    padTilt: 14.0, // inward bevel of the contact face (degrees), hinged at frame front
+    // Lens glazing groove (facet) on the inner rim wall
+    facetDepth: 0.8, // radial cut into the rim from the inner hole
+    facetPos: 0.0, // Z offset from rim mid-plane (+ toward front)
   };
 
+  const PAD_MIN_WIDTH = 1.5;
+  const PAD_MIN_THICK = 1.0;
+  const PAD_MAX_THICK = 10.0;
+
   function cloneParams(p) {
-    return Object.assign({}, DEFAULTS, p || {});
+    const out = Object.assign({}, DEFAULTS, p || {});
+    out.padWidth = Math.max(PAD_MIN_WIDTH, out.padWidth);
+    out.padThickness = Math.max(PAD_MIN_THICK, Math.min(PAD_MAX_THICK, out.padThickness));
+    out.bridgeDepth = out.rimDepth;
+    return out;
   }
 
   /**
@@ -51,11 +68,16 @@
     const worldL = transformRim(rimL, originL);
 
     const bridge = buildBridge(worldR, worldL, params);
+    const pads = buildNosePads(worldR, worldL, params);
 
     const meshes = [];
-    meshes.push(extrudeRing(worldR.outer, worldR.inner, params.rimDepth, 'rim-R'));
-    meshes.push(extrudeRing(worldL.outer, worldL.inner, params.rimDepth, 'rim-L'));
-    if (bridge) meshes.push(extrudePolygon(bridge.outline, params.bridgeDepth, 'bridge'));
+    meshes.push(extrudeRimWithFacet(worldR.outer, worldR.inner, params, 'rim-R'));
+    meshes.push(extrudeRimWithFacet(worldL.outer, worldL.inner, params, 'rim-L'));
+    if (bridge) meshes.push(extrudePolygon(bridge.outline, params.rimDepth, 'bridge'));
+    if (pads) {
+      if (pads.R && pads.R.mesh) meshes.push(pads.R.mesh);
+      if (pads.L && pads.L.mesh) meshes.push(pads.L.mesh);
+    }
 
     const combined = mergeMeshes(meshes);
 
@@ -64,8 +86,12 @@
       params: params,
       origins: { R: originR, L: originL },
       gap: gap,
-      rims: { R: worldR, L: worldL },
+      rims: {
+        R: Object.assign({ groove: offsetRingToward(worldR.inner, worldR.outer, grooveDepth(params)) }, worldR),
+        L: Object.assign({ groove: offsetRingToward(worldL.inner, worldL.outer, grooveDepth(params)) }, worldL),
+      },
       bridge: bridge,
+      pads: pads,
       mesh: combined,
       parts: meshes,
     };
@@ -179,6 +205,248 @@
     };
   }
 
+  /**
+   * Acetate-style pads: mounds on the nasal rim.
+   * Outer edge is a run of the outer contour (same curvature as the rim).
+   * Inward tilt is a plane hinged at the front (upper) edge of the frame.
+   */
+  function buildNosePads(rimR, rimL, params) {
+    if (params.padHeight < 2 || params.rimDepth < 0.4) {
+      return null;
+    }
+    const padR = buildPlasticPad(rimR, 'R', params);
+    const padL = buildPlasticPad(rimL, 'L', params);
+    return { R: padR, L: padL, y: params.padDrop, gap: params.padGap };
+  }
+
+  function buildPlasticPad(rim, side, params) {
+    const towardNose = side === 'R' ? 1 : -1;
+    const yMid = params.padDrop;
+    const halfH = params.padHeight / 2;
+    const y0 = yMid - halfH;
+    const y1 = yMid + halfH;
+    const pairs = sampleNasalPairs(rim, side, y0, y1);
+    if (pairs.length < 3) return null;
+
+    const root = [];
+    const edge = [];
+    const env = [];
+
+    for (let i = 0; i < pairs.length; i++) {
+      const inn = pairs[i].inner;
+      const out = pairs[i].outer;
+      const bulge = padEnvelope(pairs[i].t);
+      env.push(bulge);
+
+      const spanX = inn.x - out.x;
+      const spanY = inn.y - out.y;
+      const span = Math.hypot(spanX, spanY) || 1;
+
+      // Stay on (or parallel to) the outer contour; extra gap insets into the rim.
+      const extraApart = Math.max(0, (params.padGap - DEFAULTS.padGap) / 2);
+      let tEdge = extraApart / span;
+      if (tEdge < 0) tEdge = 0;
+      if (tEdge > 0.85) tEdge = 0.85;
+      edge.push({
+        x: out.x + spanX * tEdge,
+        y: out.y + spanY * tEdge,
+      });
+
+      const maxIn = Math.max(PAD_MIN_WIDTH, span - 0.05);
+      const inset = Math.max(PAD_MIN_WIDTH, Math.min(params.padWidth, maxIn) * (0.22 + 0.78 * bulge));
+      let tRoot = tEdge + inset / span;
+      if (tRoot < tEdge + 0.08) tRoot = tEdge + 0.08;
+      if (tRoot > 0.98) tRoot = 0.98;
+      root.push({
+        x: out.x + spanX * tRoot,
+        y: out.y + spanY * tRoot,
+      });
+    }
+
+    const mesh = extrudePadOnRim(root, edge, env, params, towardNose, 'pad-' + side);
+    const outline2d = root.concat(edge.slice().reverse());
+    const mid = edge[Math.floor(edge.length / 2)] || edge[0];
+    return {
+      center: { x: mid.x, y: mid.y },
+      outline2d: outline2d,
+      mesh: mesh,
+    };
+  }
+
+  function padEnvelope(t) {
+    if (t <= 0 || t >= 1) return 0;
+    const peak = 0.28;
+    if (t < peak) return Math.sin((t / peak) * (Math.PI / 2));
+    return Math.pow(Math.cos(((t - peak) / (1 - peak)) * (Math.PI / 2)), 1.2);
+  }
+
+  function sampleNasalPairs(rim, side, y0, y1) {
+    const nasalA = side === 'R' ? 0 : Math.PI;
+    const n = rim.outer.length;
+    const idx = [];
+    for (let i = 0; i < n; i++) {
+      const p = rim.outer[i];
+      if (Math.abs(angleDiff(p.a, nasalA)) > 1.2) continue;
+      if (p.y < y0 || p.y > y1) continue;
+      idx.push(i);
+    }
+    if (idx.length < 3) return sampleNasalPairsByY(rim, side, y0, y1, 48);
+
+    idx.sort(function (a, b) {
+      return a - b;
+    });
+    let gapAt = 0;
+    let gap = idx[0] + n - idx[idx.length - 1];
+    for (let k = 1; k < idx.length; k++) {
+      const g = idx[k] - idx[k - 1];
+      if (g > gap) {
+        gap = g;
+        gapAt = k;
+      }
+    }
+    const ordered = idx.slice(gapAt).concat(idx.slice(0, gapAt));
+
+    const pairs = [];
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (let k = 0; k < ordered.length; k++) {
+      const out = rim.outer[ordered[k]];
+      const inn = closestByAngle(rim.inner, out.a);
+      minY = Math.min(minY, out.y);
+      maxY = Math.max(maxY, out.y);
+      pairs.push({
+        inner: { x: inn.x, y: inn.y, a: inn.a },
+        outer: { x: out.x, y: out.y, a: out.a },
+        t: 0,
+      });
+    }
+    const spanY = maxY - minY || 1;
+    for (let i = 0; i < pairs.length; i++) {
+      pairs[i].t = (pairs[i].outer.y - minY) / spanY;
+    }
+    return pairs;
+  }
+
+  function sampleNasalPairsByY(rim, side, y0, y1, n) {
+    const nasalA = side === 'R' ? 0 : Math.PI;
+    const outerNasal = filterNasal(rim.outer, nasalA);
+    const src = outerNasal.length >= 8 ? outerNasal : rim.outer;
+    const pairs = [];
+    for (let i = 0; i < n; i++) {
+      const t = n === 1 ? 0.5 : i / (n - 1);
+      const y = y0 + t * (y1 - y0);
+      const out = closestOnRing(src, y, nasalA);
+      const inn = closestByAngle(rim.inner, out.a);
+      pairs.push({
+        inner: { x: inn.x, y: inn.y, a: inn.a },
+        outer: { x: out.x, y: out.y, a: out.a },
+        t: t,
+      });
+    }
+    return pairs;
+  }
+
+  function filterNasal(ring, nasalA) {
+    const out = [];
+    for (let i = 0; i < ring.length; i++) {
+      if (Math.abs(angleDiff(ring[i].a, nasalA)) <= 1.15) out.push(ring[i]);
+    }
+    return out;
+  }
+
+  function closestOnRing(ring, y, nasalA) {
+    let best = ring[0];
+    let bestScore = Infinity;
+    for (let i = 0; i < ring.length; i++) {
+      const p = ring[i];
+      const score = Math.abs(p.y - y) + Math.abs(angleDiff(p.a, nasalA)) * 1.6;
+      if (score < bestScore) {
+        bestScore = score;
+        best = p;
+      }
+    }
+    return best;
+  }
+
+  function closestByAngle(ring, a) {
+    let best = ring[0];
+    let bestD = Infinity;
+    for (let i = 0; i < ring.length; i++) {
+      const d = Math.abs(angleDiff(ring[i].a, a));
+      if (d < bestD) {
+        bestD = d;
+        best = ring[i];
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Pad prism on the rim: outer edge on the outer contour.
+   * Inward tilt is hinged at the front (upper) edge of the frame (z = +rimDepth/2).
+   */
+  function extrudePadOnRim(root, edge, env, params, towardNose, name) {
+    const n = Math.min(root.length, edge.length);
+    if (n < 2) return emptyMesh(name);
+    const zF = params.rimDepth / 2;
+    const zB = -params.rimDepth / 2;
+    const bulge = Math.max(PAD_MIN_THICK, Math.min(PAD_MAX_THICK, params.padThickness));
+    const tilt = (params.padTilt * Math.PI) / 180;
+    const zBack = zB - bulge;
+    const dz = zF - zBack;
+    const positions = [];
+    const indices = [];
+
+    function add(x, y, z) {
+      const zz = Math.min(z, zF);
+      positions.push(x, y, zz);
+      return positions.length / 3 - 1;
+    }
+
+    const fRoot = [];
+    const bRoot = [];
+    const fEdge = [];
+    const bEdge = [];
+    for (let i = 0; i < n; i++) {
+      const dx = root[i].x - edge[i].x;
+      const dy = root[i].y - edge[i].y;
+      const len = Math.hypot(dx, dy) || 1;
+      // Full geometric tilt from the frame's front edge, into the rim.
+      const tiltAlong = Math.min(Math.tan(tilt) * dz, len * 0.85);
+      fRoot.push(add(root[i].x, root[i].y, zF));
+      bRoot.push(add(root[i].x, root[i].y, zB));
+      fEdge.push(add(edge[i].x, edge[i].y, zF));
+      bEdge.push(
+        add(edge[i].x + (dx / len) * tiltAlong, edge[i].y + (dy / len) * tiltAlong, zBack)
+      );
+    }
+
+    const sign = edge[0].x - root[0].x >= 0 ? 1 : -1;
+    function tri(a, b, c) {
+      if (sign >= 0) indices.push(a, b, c);
+      else indices.push(a, c, b);
+    }
+
+    for (let i = 0; i < n - 1; i++) {
+      const j = i + 1;
+      tri(fRoot[i], fRoot[j], fEdge[j]);
+      tri(fRoot[i], fEdge[j], fEdge[i]);
+      tri(bRoot[i], bEdge[i], bEdge[j]);
+      tri(bRoot[i], bEdge[j], bRoot[j]);
+      tri(fEdge[i], bEdge[j], bEdge[i]);
+      tri(fEdge[i], fEdge[j], bEdge[j]);
+      tri(fRoot[i], bRoot[i], bRoot[j]);
+      tri(fRoot[i], bRoot[j], fRoot[j]);
+    }
+    tri(fRoot[0], fEdge[0], bEdge[0]);
+    tri(fRoot[0], bEdge[0], bRoot[0]);
+    const last = n - 1;
+    tri(fRoot[last], bRoot[last], bEdge[last]);
+    tri(fRoot[last], bEdge[last], fEdge[last]);
+
+    return { name: name, positions: positions, indices: indices };
+  }
+
   function sampleNearAngle(ring, target, tol) {
     const out = [];
     for (let i = 0; i < ring.length; i++) {
@@ -211,6 +479,105 @@
     let s = 0;
     for (let i = 0; i < pts.length; i++) s += pts[i].y;
     return s / pts.length;
+  }
+
+  function grooveDepth(params) {
+    const maxD = Math.max(0, params.rimWidth - 0.6);
+    return Math.max(0, Math.min(params.facetDepth, maxD));
+  }
+
+  function offsetRingToward(from, toward, dist) {
+    const n = Math.min(from.length, toward.length);
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const dx = toward[i].x - from[i].x;
+      const dy = toward[i].y - from[i].y;
+      const len = Math.hypot(dx, dy) || 1;
+      const d = Math.min(dist, Math.max(0, len - 0.4));
+      out.push({
+        x: from[i].x + (dx / len) * d,
+        y: from[i].y + (dy / len) * d,
+        a: from[i].a,
+      });
+    }
+    return out;
+  }
+
+  function facetZ(params) {
+    const half = params.rimDepth / 2;
+    const grooveW = Math.min(1.3, Math.max(0.7, params.rimDepth * 0.38));
+    const maxPos = Math.max(0, half - grooveW / 2 - 0.22);
+    let z = params.facetPos;
+    if (z > maxPos) z = maxPos;
+    if (z < -maxPos) z = -maxPos;
+    return { z: z, halfW: grooveW / 2, z1: half, z0: -half };
+  }
+
+  /**
+   * Rim annulus with a V-groove on the inner wall for the lens bevel.
+   */
+  function extrudeRimWithFacet(outer, inner, params, name) {
+    const depthCut = grooveDepth(params);
+    if (depthCut < 0.05) return extrudeRing(outer, inner, params.rimDepth, name);
+
+    const n = Math.min(outer.length, inner.length);
+    if (n < 3) return emptyMesh(name);
+
+    const fz = facetZ(params);
+    const z1 = fz.z1;
+    const z0 = fz.z0;
+    const zGf = fz.z + fz.halfW;
+    const zGb = fz.z - fz.halfW;
+    const zG = fz.z;
+    const groove = offsetRingToward(inner, outer, depthCut);
+
+    const positions = [];
+    const indices = [];
+    function add(x, y, z) {
+      positions.push(x, y, z);
+      return positions.length / 3 - 1;
+    }
+
+    const fOuter = [];
+    const bOuter = [];
+    const inF = [];
+    const inLipF = [];
+    const inBot = [];
+    const inLipB = [];
+    const inB = [];
+    for (let i = 0; i < n; i++) {
+      fOuter.push(add(outer[i].x, outer[i].y, z1));
+      bOuter.push(add(outer[i].x, outer[i].y, z0));
+      inF.push(add(inner[i].x, inner[i].y, z1));
+      inLipF.push(add(inner[i].x, inner[i].y, zGf));
+      inBot.push(add(groove[i].x, groove[i].y, zG));
+      inLipB.push(add(inner[i].x, inner[i].y, zGb));
+      inB.push(add(inner[i].x, inner[i].y, z0));
+    }
+
+    function strip(a, b) {
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        indices.push(a[j], b[j], b[i]);
+        indices.push(a[j], b[i], a[i]);
+      }
+    }
+
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      indices.push(fOuter[i], fOuter[j], inF[j]);
+      indices.push(fOuter[i], inF[j], inF[i]);
+      indices.push(bOuter[j], bOuter[i], inB[i]);
+      indices.push(bOuter[j], inB[i], inB[j]);
+      indices.push(fOuter[i], bOuter[i], bOuter[j]);
+      indices.push(fOuter[i], bOuter[j], fOuter[j]);
+    }
+    strip(inF, inLipF);
+    strip(inLipF, inBot);
+    strip(inBot, inLipB);
+    strip(inLipB, inB);
+
+    return { name: name, positions: positions, indices: indices };
   }
 
   /** Annular prism: outer CCW, inner CW for correct normals */

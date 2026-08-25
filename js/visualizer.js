@@ -119,6 +119,9 @@
       if (!rim) return;
       strokeRing(rim.outer, 'rgba(26, 36, 48, 0.75)', 2);
       strokeRing(rim.inner, 'rgba(26, 36, 48, 0.35)', 1.25);
+      if (rim.groove && rim.groove.length) {
+        strokeRing(rim.groove, 'rgba(138, 75, 18, 0.75)', 1.35);
+      }
     });
 
     if (frameModel.bridge && frameModel.bridge.outline) {
@@ -135,6 +138,26 @@
       ctx.strokeStyle = 'rgba(29, 78, 137, 0.9)';
       ctx.lineWidth = 1.5;
       ctx.stroke();
+    }
+
+    if (frameModel.pads) {
+      ['R', 'L'].forEach(function (side) {
+        const pad = frameModel.pads[side];
+        if (!pad || !pad.outline2d) return;
+        const o = pad.outline2d;
+        ctx.beginPath();
+        for (let i = 0; i < o.length; i++) {
+          const s = worldToScreen(o[i].x, o[i].y);
+          if (i === 0) ctx.moveTo(s.x, s.y);
+          else ctx.lineTo(s.x, s.y);
+        }
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(11, 110, 106, 0.55)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(11, 110, 106, 1)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      });
     }
   }
 

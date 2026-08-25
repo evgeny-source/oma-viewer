@@ -36,11 +36,21 @@
       <main class="main">
         <section class="viewport">
           <div class="tabs" role="tablist">
-            <button type="button" class="tab active" data-tab="scan" id="tabScan">2D скан</button>
-            <button type="button" class="tab" data-tab="frame" id="tabFrame">3D рамка</button>
+            <button type="button" class="tab active" data-tab="frame" id="tabFrame">3D рамка</button>
+            <button type="button" class="tab" data-tab="scan" id="tabScan">2D скан</button>
           </div>
 
-          <div class="stage tab-panel active" id="panelScan" data-panel="scan">
+          <div class="stage tab-panel active" id="panelFrame" data-panel="frame">
+            <div class="view3d-wrap" id="dropzone3d">
+              <div id="view3d" class="view3d"></div>
+              <div class="empty" id="empty3d">
+                <p>Загрузите OMA, чтобы построить 3D-рамку</p>
+                <p class="hint">вращайте мышью · колесо — масштаб</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="stage tab-panel" id="panelScan" data-panel="scan">
             <div id="dropzone" class="drop-fill">
               <canvas id="canvas" aria-label="Контур оправы"></canvas>
               <div class="empty" id="emptyState">
@@ -52,16 +62,6 @@
                 <label class="check"><input type="checkbox" id="togGrid" checked /> сетка</label>
                 <label class="check"><input type="checkbox" id="togAxes" checked /> оси</label>
                 <label class="check"><input type="checkbox" id="togFrame2d" checked /> рамка</label>
-              </div>
-            </div>
-          </div>
-
-          <div class="stage tab-panel" id="panelFrame" data-panel="frame">
-            <div class="view3d-wrap">
-              <div id="view3d" class="view3d"></div>
-              <div class="empty" id="empty3d">
-                <p>Загрузите OMA, чтобы построить 3D-рамку</p>
-                <p class="hint">вращайте мышью · колесо — масштаб</p>
               </div>
             </div>
           </div>
@@ -93,10 +93,6 @@
                 <input type="range" id="p-bridgeHeight" min="1" max="12" step="0.1" value="4" />
               </label>
               <label class="ctrl">
-                <span>Толщина перемычки <em id="val-bridgeDepth">4.0</em> mm</span>
-                <input type="range" id="p-bridgeDepth" min="1" max="12" step="0.1" value="4" />
-              </label>
-              <label class="ctrl">
                 <span>Сдвиг перемычки ↑↓ <em id="val-bridgeDrop">0.0</em> mm</span>
                 <input type="range" id="p-bridgeDrop" min="-10" max="10" step="0.1" value="0" />
               </label>
@@ -104,6 +100,45 @@
                 <span>Заход перемычки <em id="val-bridgeReach">2.0</em> mm</span>
                 <input type="range" id="p-bridgeReach" min="0" max="8" step="0.1" value="2" />
               </label>
+
+              <h3 class="ctrl-section">Фацет линзы</h3>
+              <p class="panel-note">Паз по внутренней стенке ободка</p>
+              <label class="ctrl">
+                <span>Положение фацета <em id="val-facetPos">0.0</em> mm</span>
+                <input type="range" id="p-facetPos" min="-4" max="4" step="0.1" value="0" />
+              </label>
+              <label class="ctrl">
+                <span>Глубина фацета <em id="val-facetDepth">0.8</em> mm</span>
+                <input type="range" id="p-facetDepth" min="0" max="2" step="0.05" value="0.8" />
+              </label>
+
+              <h3 class="ctrl-section">Носоупоры</h3>
+              <p class="panel-note">Внешний край повторяет кривизну ободка; наклон от передней грани рамки</p>
+              <label class="ctrl">
+                <span>Ширина подушки <em id="val-padWidth">3.2</em> mm</span>
+                <input type="range" id="p-padWidth" min="1.5" max="6" step="0.1" value="3.2" />
+              </label>
+              <label class="ctrl">
+                <span>Высота подушки <em id="val-padHeight">14.0</em> mm</span>
+                <input type="range" id="p-padHeight" min="6" max="22" step="0.1" value="14" />
+              </label>
+              <label class="ctrl">
+                <span>Выступ к лицу <em id="val-padThickness">1.6</em> mm</span>
+                <input type="range" id="p-padThickness" min="1" max="10" step="0.1" value="1.6" />
+              </label>
+              <label class="ctrl">
+                <span>Разведение подушек <em id="val-padGap">12.0</em> mm</span>
+                <input type="range" id="p-padGap" min="6" max="24" step="0.1" value="12" />
+              </label>
+              <label class="ctrl">
+                <span>Высота носоупоров ↑↓ <em id="val-padDrop">-5.0</em> mm</span>
+                <input type="range" id="p-padDrop" min="-22" max="6" step="0.1" value="-5" />
+              </label>
+              <label class="ctrl">
+                <span>Наклон внутрь <em id="val-padTilt">14.0</em>°</span>
+                <input type="range" id="p-padTilt" min="0" max="35" step="1" value="14" />
+              </label>
+
               <button type="button" class="btn btn-block" id="resetParamsBtn" disabled>
                 Сбросить параметры
               </button>

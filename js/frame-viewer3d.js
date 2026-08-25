@@ -127,16 +127,22 @@
       }
     }
 
-    function meshFromData(data, color, opacity) {
-      const geo = new THREE.BufferGeometry();
+    function meshFromData(data, color, opacity, flat) {
+      let geo = new THREE.BufferGeometry();
       const pos = new Float32Array(data.positions);
       geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
       geo.setIndex(data.indices);
-      geo.computeVertexNormals();
+      if (flat) {
+        geo = geo.toNonIndexed();
+        geo.computeVertexNormals();
+      } else {
+        geo.computeVertexNormals();
+      }
       const mat = new THREE.MeshStandardMaterial({
         color: color,
         metalness: 0.02,
         roughness: 0.72,
+        flatShading: !!flat,
         transparent: opacity < 1,
         opacity: opacity,
         side: THREE.DoubleSide,
@@ -157,11 +163,12 @@
       if (model.parts) {
         model.parts.forEach(function (part) {
           if (!part.positions.length) return;
-          const color = part.name.indexOf('pad-') === 0 ? padColor : frameColor;
-          frameGroup.add(meshFromData(part, color, 1));
+          const isPad = part.name.indexOf('pad-') === 0;
+          const color = isPad ? padColor : frameColor;
+          frameGroup.add(meshFromData(part, color, 1, !isPad));
         });
       } else if (model.mesh) {
-        frameGroup.add(meshFromData(model.mesh, frameColor, 1));
+        frameGroup.add(meshFromData(model.mesh, frameColor, 1, true));
       }
 
       // Lens openings as faint discs hint

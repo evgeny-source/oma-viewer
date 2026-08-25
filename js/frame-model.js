@@ -14,21 +14,23 @@
     // Molded plastic nose pads: teardrop mounds on the nasal rim, inside the outline
     padWidth: 3.2, // how far the pad extends inward from the outer rim
     padHeight: 14.0, // length along the inner nasal rim
-    padThickness: 1.6, // extra mound toward the face (−Z), min 1.5 mm
+    padThickness: 1.6, // extra mound toward the face (−Z), 1–10 mm
     padGap: 12.0, // distance between nose-facing contact walls
     padDrop: -5.0, // vertical position of pad centers (mm, + up)
-    padTilt: 14.0, // inward bevel of the contact face (degrees)
+    padTilt: 14.0, // inward bevel of the contact face (degrees), hinged at frame front
     // Lens glazing groove (facet) on the inner rim wall
     facetDepth: 0.8, // radial cut into the rim from the inner hole
     facetPos: 0.0, // Z offset from rim mid-plane (+ toward front)
   };
 
-  const PAD_MIN_THICK = 1.5;
+  const PAD_MIN_WIDTH = 1.5;
+  const PAD_MIN_THICK = 1.0;
+  const PAD_MAX_THICK = 10.0;
 
   function cloneParams(p) {
     const out = Object.assign({}, DEFAULTS, p || {});
-    out.padWidth = Math.max(PAD_MIN_THICK, out.padWidth);
-    out.padThickness = Math.max(PAD_MIN_THICK, out.padThickness);
+    out.padWidth = Math.max(PAD_MIN_WIDTH, out.padWidth);
+    out.padThickness = Math.max(PAD_MIN_THICK, Math.min(PAD_MAX_THICK, out.padThickness));
     out.bridgeDepth = out.rimDepth;
     return out;
   }
@@ -204,9 +206,9 @@
   }
 
   /**
-   * Acetate-style pads: teardrop mounds on the nasal rim.
-   * Front of the nose-face sits on the outer contour; padGap and padTilt
-   * move / bevel that contact wall. Thickness is at least 1.5 mm.
+   * Acetate-style pads: mounds on the nasal rim.
+   * Outer edge is a run of the outer contour (same curvature as the rim).
+   * Inward tilt is a plane hinged at the front (upper) edge of the frame.
    */
   function buildNosePads(rimR, rimL, params) {
     if (params.padHeight < 2 || params.rimDepth < 0.4) {
@@ -223,8 +225,7 @@
     const halfH = params.padHeight / 2;
     const y0 = yMid - halfH;
     const y1 = yMid + halfH;
-    const n = 16;
-    const pairs = sampleNasalPairs(rim, side, y0, y1, n);
+    const pairs = sampleNasalPairs(rim, side, y0, y1);
     if (pairs.length < 3) return null;
 
     const root = [];
@@ -241,7 +242,7 @@
       const spanY = inn.y - out.y;
       const span = Math.hypot(spanX, spanY) || 1;
 
-      // Glued to the outer rim. Extra padGap only insets into the rim, never past it.
+      // Stay on (or parallel to) the outer contour; extra gap insets into the rim.
       const extraApart = Math.max(0, (params.padGap - DEFAULTS.padGap) / 2);
       let tEdge = extraApart / span;
       if (tEdge < 0) tEdge = 0;
@@ -251,8 +252,8 @@
         y: out.y + spanY * tEdge,
       });
 
-      const maxIn = Math.max(PAD_MIN_THICK, span - 0.05);
-      const inset = Math.max(PAD_MIN_THICK, Math.min(params.padWidth, maxIn) * (0.22 + 0.78 * bulge));
+      const maxIn = Math.max(PAD_MIN_WIDTH, span - 0.05);
+      const inset = Math.max(PAD_MIN_WIDTH, Math.min(params.padWidth, maxIn) * (0.22 + 0.78 * bulge));
       let tRoot = tEdge + inset / span;
       if (tRoot < tEdge + 0.08) tRoot = tEdge + 0.08;
       if (tRoot > 0.98) tRoot = 0.98;
@@ -279,16 +280,63 @@
     return Math.pow(Math.cos(((t - peak) / (1 - peak)) * (Math.PI / 2)), 1.2);
   }
 
-  function sampleNasalPairs(rim, side, y0, y1, n) {
+  function sampleNasalPairs(rim, side, y0, y1) {
     const nasalA = side === 'R' ? 0 : Math.PI;
-    const innerNasal = filterNasal(rim.inner, nasalA);
-    const src = innerNasal.length >= 8 ? innerNasal : rim.inner;
+    const n = rim.outer.length;
+    const idx = [];
+    for (let i = 0; i < n; i++) {
+      const p = rim.outer[i];
+      if (Math.abs(angleDiff(p.a, nasalA)) > 1.2) continue;
+      if (p.y < y0 || p.y > y1) continue;
+      idx.push(i);
+    }
+    if (idx.length < 3) return sampleNasalPairsByY(rim, side, y0, y1, 48);
+
+    idx.sort(function (a, b) {
+      return a - b;
+    });
+    let gapAt = 0;
+    let gap = idx[0] + n - idx[idx.length - 1];
+    for (let k = 1; k < idx.length; k++) {
+      const g = idx[k] - idx[k - 1];
+      if (g > gap) {
+        gap = g;
+        gapAt = k;
+      }
+    }
+    const ordered = idx.slice(gapAt).concat(idx.slice(0, gapAt));
+
+    const pairs = [];
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (let k = 0; k < ordered.length; k++) {
+      const out = rim.outer[ordered[k]];
+      const inn = closestByAngle(rim.inner, out.a);
+      minY = Math.min(minY, out.y);
+      maxY = Math.max(maxY, out.y);
+      pairs.push({
+        inner: { x: inn.x, y: inn.y, a: inn.a },
+        outer: { x: out.x, y: out.y, a: out.a },
+        t: 0,
+      });
+    }
+    const spanY = maxY - minY || 1;
+    for (let i = 0; i < pairs.length; i++) {
+      pairs[i].t = (pairs[i].outer.y - minY) / spanY;
+    }
+    return pairs;
+  }
+
+  function sampleNasalPairsByY(rim, side, y0, y1, n) {
+    const nasalA = side === 'R' ? 0 : Math.PI;
+    const outerNasal = filterNasal(rim.outer, nasalA);
+    const src = outerNasal.length >= 8 ? outerNasal : rim.outer;
     const pairs = [];
     for (let i = 0; i < n; i++) {
       const t = n === 1 ? 0.5 : i / (n - 1);
       const y = y0 + t * (y1 - y0);
-      const inn = closestOnRing(src, y, nasalA);
-      const out = closestByAngle(rim.outer, inn.a);
+      const out = closestOnRing(src, y, nasalA);
+      const inn = closestByAngle(rim.inner, out.a);
       pairs.push({
         inner: { x: inn.x, y: inn.y, a: inn.a },
         outer: { x: out.x, y: out.y, a: out.a },
@@ -334,15 +382,18 @@
   }
 
   /**
-   * Pad prism on the rim: outer edge on the outer contour, front flush.
+   * Pad prism on the rim: outer edge on the outer contour.
+   * Inward tilt is hinged at the front (upper) edge of the frame (z = +rimDepth/2).
    */
   function extrudePadOnRim(root, edge, env, params, towardNose, name) {
     const n = Math.min(root.length, edge.length);
     if (n < 2) return emptyMesh(name);
     const zF = params.rimDepth / 2;
     const zB = -params.rimDepth / 2;
-    const bulge = Math.max(PAD_MIN_THICK, params.padThickness);
+    const bulge = Math.max(PAD_MIN_THICK, Math.min(PAD_MAX_THICK, params.padThickness));
     const tilt = (params.padTilt * Math.PI) / 180;
+    const zBack = zB - bulge;
+    const dz = zF - zBack;
     const positions = [];
     const indices = [];
 
@@ -357,25 +408,16 @@
     const fEdge = [];
     const bEdge = [];
     for (let i = 0; i < n; i++) {
-      const e = env && env[i] != null ? env[i] : 1;
-      const backExtra = -bulge * e;
-      // Tilt into the rim (toward the inner hole), never past the outer edge.
       const dx = root[i].x - edge[i].x;
       const dy = root[i].y - edge[i].y;
       const len = Math.hypot(dx, dy) || 1;
-      const tiltAlong = Math.min(
-        Math.tan(tilt) * (params.rimDepth + bulge) * 0.4 * e,
-        len * 0.45
-      );
+      // Full geometric tilt from the frame's front edge, into the rim.
+      const tiltAlong = Math.min(Math.tan(tilt) * dz, len * 0.85);
       fRoot.push(add(root[i].x, root[i].y, zF));
       bRoot.push(add(root[i].x, root[i].y, zB));
       fEdge.push(add(edge[i].x, edge[i].y, zF));
       bEdge.push(
-        add(
-          edge[i].x + (dx / len) * tiltAlong,
-          edge[i].y + (dy / len) * tiltAlong,
-          zB + backExtra
-        )
+        add(edge[i].x + (dx / len) * tiltAlong, edge[i].y + (dy / len) * tiltAlong, zBack)
       );
     }
 
